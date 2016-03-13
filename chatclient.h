@@ -2,21 +2,24 @@
 #define CHATCLIENT_H
 
 #include <QApplication>
-#include <QWidget>
+#include <QMainWindow>
 #include <QTcpSocket>
 #include <QTextEdit>
-#include <QLineEdit>
-#include <QPushButton>
 #include <QVBoxLayout>
-#include <QLabel>
 #include <QTime>
+#include <QInputDialog>
+#include <QDockWidget>
+#include <QTableView>
+#include <QStringListModel>
 
-class ChatClient : public QWidget
+#include "inputdialog.h"
+
+class ChatClient : public QMainWindow
 {
     Q_OBJECT
 
 public:
-    ChatClient(const QString &_strHost, int _nPort, QWidget *_parent = 0);
+    ChatClient(QWidget *_parent = 0);
     ~ChatClient();
 
 private slots:
@@ -28,8 +31,9 @@ private slots:
 private:
     QTcpSocket *tcpSocket;
     QTextEdit *txtInfo;
-    QLineEdit *txtInput;
+    QTextEdit *txtInput;
     quint16 nextBlockSize;
+    QStringList *slClients;
 };
 
 #endif // CHATCLIENT_H

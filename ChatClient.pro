@@ -14,6 +14,8 @@ TEMPLATE = app
 
 
 SOURCES += main.cpp\
-        chatclient.cpp
+        chatclient.cpp \
+    inputdialog.cpp
 
-HEADERS  += chatclient.h
+HEADERS  += chatclient.h \
+    inputdialog.h
