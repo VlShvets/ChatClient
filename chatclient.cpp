@@ -3,8 +3,6 @@
 ChatClient::ChatClient(QWidget *_parent)
     : QMainWindow(_parent), nextBlockSize(0)
 {
-    this->setWindowTitle(tr("Чат"));
-
     tcpSocket = new QTcpSocket(this);
 
     QString hostName = "localhost";
@@ -22,60 +20,41 @@ ChatClient::ChatClient(QWidget *_parent)
                                         QLineEdit::Normal, "unnamed", &bOk);
     if(!bOk || clientName.isEmpty())
         clientName = "unnamed";
+    this->setWindowTitle(clientName);
     tcpSocket->setObjectName(clientName);
+
     tcpSocket->connectToHost(hostName, nPort);
 
-    connect(tcpSocket, SIGNAL(connected()), SLOT(slotConnected()));
-    connect(tcpSocket, SIGNAL(readyRead()), SLOT(slotReadyRead()));
+    connect(tcpSocket, SIGNAL(connected()), this, SLOT(slotConnected()));
+    connect(tcpSocket, SIGNAL(readyRead()), this, SLOT(slotReadyRead()));
     connect(tcpSocket, SIGNAL(error(QAbstractSocket::SocketError)), this, SLOT(slotError(QAbstractSocket::SocketError)));
 
-    txtInfo = new QTextEdit;
-    txtInput = new QTextEdit;
-    slClients = new QStringList(clientName);
 
-    txtInfo->setReadOnly(true);
-//    tvClients->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    QListView *lvClients = new QListView;
+    lvClients->setModel(&model);
+    lvClients->setEditTriggers(QAbstractItemView::NoEditTriggers);
 
-    QPushButton *pcmd = new QPushButton(tr("&Отправить"));
-    pcmd->setMaximumWidth(100);
-    connect(pcmd, SIGNAL(clicked()), SLOT(slotSendToServer()));
+    this->setCentralWidget(lvClients);
 
-    QStringListModel *model = new QStringListModel;
-    model->setStringList(*slClients);
-
-    QTableView *tvClients = new QTableView;
-    tvClients->setModel(model);
-    tvClients->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    tvClients->setHorizontalHeader(new QHorizontalHeader());
-
-    QWidget *centralWidget = new QWidget;
-    QVBoxLayout *vbxLayout = new QVBoxLayout;
-    vbxLayout->addWidget(new QLabel("<H1>Чат</H1>"), 0, Qt::AlignCenter);
-    vbxLayout->addWidget(txtInfo, 10);
-    vbxLayout->addWidget(txtInput, 1);
-    vbxLayout->addWidget(pcmd, 0, Qt::AlignCenter);
-    centralWidget->setLayout(vbxLayout);
-    this->setCentralWidget(centralWidget);
+    tabWidget = new QTabWidget;
 
     QDockWidget *dockWidget = new QDockWidget;
-    dockWidget->setWidget(tvClients);
+    dockWidget->setWindowTitle("Чат");
+    dockWidget->setWidget(tabWidget);
     dockWidget->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
-    this->addDockWidget(Qt::LeftDockWidgetArea, dockWidget);
-
-    txtInfo->append(tr("Хост") + " " + hostName + ". " +
-                    tr("Порт") + " " + QString::number(nPort) + ". " +
-                    tr("Установка соединения с сервером..."));
+    this->addDockWidget(Qt::RightDockWidgetArea, dockWidget);
 }
 
 ChatClient::~ChatClient()
 {
-
+    delete tabWidget;
+    delete tcpSocket;
 }
 
 void ChatClient::slotReadyRead()
 {
     QDataStream in(tcpSocket);
-    in.setVersion(QDataStream::Qt_5_5);
+    in.setVersion(QDataStream::Qt_5_4);
     for(;;)
     {
         if(!nextBlockSize)
@@ -88,43 +67,45 @@ void ChatClient::slotReadyRead()
         if(tcpSocket->bytesAvailable() < nextBlockSize)
             break;
 
+        QString sender;
         QTime time;
         QString str;
-        in >> time >> str;
+        in >> sender >> time >> str;
+        if(tcpSocket->objectName() == sender)
+        {
+            slClients = str.split("0x00", QString::SkipEmptyParts);
+            slClients.removeAll(tcpSocket->objectName());
+            model.setStringList(slClients);
+        }
 
-        txtInfo->append(time.toString() + " " + str);
+//        txtInfo->append(time.toString() + " " + str);
         nextBlockSize = 0;
     }
 }
 
 void ChatClient::slotError(QAbstractSocket::SocketError _err)
 {
-    QString strError = tr("Ошибка:") + " " + (_err == QAbstractSocket::HostNotFoundError ? tr("Хост не был найден.") :
-                                              _err == QAbstractSocket::RemoteHostClosedError ? tr("Удаленный хост закрыт.") :
-                                              _err == QAbstractSocket::ConnectionRefusedError ? tr("В соединении было отказано.") :
-                                              QString(tcpSocket->errorString()));
-    txtInfo->append(strError);
+    QString strError = _err == QAbstractSocket::HostNotFoundError ? tr("Хост не был найден.") :
+                       _err == QAbstractSocket::RemoteHostClosedError ? tr("Удаленный хост закрыт.") :
+                       _err == QAbstractSocket::ConnectionRefusedError ? tr("В соединении было отказано.") :
+                       QString(tcpSocket->errorString());
+    QMessageBox::critical(0, tr("Ошибка"), tr("Невозможно установить соединение:") + " " + strError);
 }
 
-void ChatClient::slotSendToServer()
+void ChatClient::slotSendToServer(const QString &_addressee, const QString &_message)
 {
     QByteArray arrBlock;
     QDataStream out(&arrBlock, QIODevice::WriteOnly);
-    out.setVersion(QDataStream::Qt_5_5);
-
-    QString strMessage = txtInput->toPlainText();
-    strMessage.replace("\n", "<br>");
-    out << quint16(0) << QTime::currentTime() << strMessage;
+    out.setVersion(QDataStream::Qt_5_4);
+    out << quint16(0) << _addressee <<  QTime::currentTime() << _message;
 
     out.device()->seek(0);
     out << quint16(arrBlock.size() - sizeof(quint16));
 
     tcpSocket->write(arrBlock);
-    txtInput->setText("");
 }
 
 void ChatClient::slotConnected()
 {
-    txtInput->setText(tcpSocket->objectName());
-    slotSendToServer();
+    slotSendToServer(tcpSocket->objectName(), " ");
 }

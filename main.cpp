@@ -5,7 +5,6 @@ int main(int argc, char *argv[])
     QApplication a(argc, argv);
 
     ChatClient client;
-    client.resize(600, 400);
     client.show();
 
     return a.exec();

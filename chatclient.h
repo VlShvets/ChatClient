@@ -4,15 +4,16 @@
 #include <QApplication>
 #include <QMainWindow>
 #include <QTcpSocket>
-#include <QTextEdit>
-#include <QVBoxLayout>
-#include <QTime>
 #include <QInputDialog>
-#include <QDockWidget>
-#include <QTableView>
+#include <QMessageBox>
 #include <QStringListModel>
+#include <QListView>
+#include <QDockWidget>
+#include <QTime>
+#include <QItemSelectionModel>
 
 #include "inputdialog.h"
+#include "chatwidget.h"
 
 class ChatClient : public QMainWindow
 {
@@ -25,15 +26,16 @@ public:
 private slots:
     void slotReadyRead();
     void slotError(QAbstractSocket::SocketError _err);
-    void slotSendToServer();
+    void slotSendToServer(const QString &_addressee, const QString &_message);
     void slotConnected();
 
 private:
     QTcpSocket *tcpSocket;
-    QTextEdit *txtInfo;
-    QTextEdit *txtInput;
     quint16 nextBlockSize;
-    QStringList *slClients;
+
+    QStringListModel model;
+    QStringList slClients;
+    QTabWidget *tabWidget;
 };
 
 #endif // CHATCLIENT_H
