@@ -3,17 +3,30 @@
 
 #include <QApplication>
 #include <QMainWindow>
-#include <QTcpSocket>
 #include <QInputDialog>
 #include <QMessageBox>
+#include <QItemSelectionModel>
 #include <QStringListModel>
 #include <QListView>
+#include <QStackedWidget>
 #include <QDockWidget>
+#include <QTextEdit>
+#include <QTcpSocket>
 #include <QTime>
-#include <QItemSelectionModel>
 
 #include "inputdialog.h"
-#include "chatwidget.h"
+
+class ChatWidget : public QWidget
+{
+    Q_OBJECT
+
+public:
+    explicit ChatWidget(QString _userName, QWidget *_parent);
+    ~ChatWidget();
+
+    QTextEdit *txtInfo;
+    QTextEdit *txtInput;
+};
 
 class ChatClient : public QMainWindow
 {
@@ -24,18 +37,22 @@ public:
     ~ChatClient();
 
 private slots:
-    void slotReadyRead();
-    void slotError(QAbstractSocket::SocketError _err);
-    void slotSendToServer(const QString &_addressee, const QString &_message);
     void slotConnected();
+    void slotReadyRead();
+    void slotSendToServer();
+    void slotError(QAbstractSocket::SocketError _err);
+
+    void slotSetCurrentChat(QModelIndex _modelIndex);
 
 private:
+    void sendToServer(const QString &_addressee, const QString &_message);
+    int indexOfChat(QString _str);
+
     QTcpSocket *tcpSocket;
     quint16 nextBlockSize;
 
     QStringListModel model;
-    QStringList slClients;
-    QTabWidget *tabWidget;
+    QStackedWidget *stackedWidget;
 };
 
 #endif // CHATCLIENT_H

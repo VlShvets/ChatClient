@@ -1,5 +1,37 @@
 #include "chatclient.h"
 
+/// Класс ChatWidget
+
+ChatWidget::ChatWidget(QString _userName, QWidget *_parent)
+    : QWidget(_parent)
+{
+    this->setObjectName(_userName);
+
+    txtInfo = new QTextEdit;
+    txtInput = new QTextEdit;
+
+    txtInfo->setReadOnly(true);
+
+    QPushButton *pcmd = new QPushButton(tr("&Отправить"));
+    pcmd->setMaximumWidth(100);
+    connect(pcmd, SIGNAL(clicked()), this, SLOT(slotSendToServer()));
+
+    QVBoxLayout *vbxLayout = new QVBoxLayout;
+    vbxLayout->addWidget(new QLabel(_userName), 0, Qt::AlignCenter);
+    vbxLayout->addWidget(txtInfo, 10);
+    vbxLayout->addWidget(txtInput, 1);
+    vbxLayout->addWidget(pcmd, 0, Qt::AlignCenter);
+    this->setLayout(vbxLayout);
+}
+
+ChatWidget::~ChatWidget()
+{
+    delete txtInfo;
+    delete txtInput;
+}
+
+/// Класс ChatClient
+
 ChatClient::ChatClient(QWidget *_parent)
     : QMainWindow(_parent), nextBlockSize(0)
 {
@@ -29,26 +61,31 @@ ChatClient::ChatClient(QWidget *_parent)
     connect(tcpSocket, SIGNAL(readyRead()), this, SLOT(slotReadyRead()));
     connect(tcpSocket, SIGNAL(error(QAbstractSocket::SocketError)), this, SLOT(slotError(QAbstractSocket::SocketError)));
 
-
     QListView *lvClients = new QListView;
     lvClients->setModel(&model);
     lvClients->setEditTriggers(QAbstractItemView::NoEditTriggers);
-
+    connect(lvClients, SIGNAL(clicked(QModelIndex)), this, SLOT(slotSetCurrentChat(QModelIndex)));
     this->setCentralWidget(lvClients);
 
-    tabWidget = new QTabWidget;
+    stackedWidget = new QStackedWidget;
 
     QDockWidget *dockWidget = new QDockWidget;
     dockWidget->setWindowTitle("Чат");
-    dockWidget->setWidget(tabWidget);
+    dockWidget->setWidget(stackedWidget);
     dockWidget->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    connect(lvClients, SIGNAL(clicked(QModelIndex)), dockWidget, SLOT(show()));
     this->addDockWidget(Qt::RightDockWidgetArea, dockWidget);
 }
 
 ChatClient::~ChatClient()
 {
-    delete tabWidget;
+    delete stackedWidget;
     delete tcpSocket;
+}
+
+void ChatClient::slotConnected()
+{
+    sendToServer(tcpSocket->objectName(), "");
 }
 
 void ChatClient::slotReadyRead()
@@ -71,16 +108,32 @@ void ChatClient::slotReadyRead()
         QTime time;
         QString str;
         in >> sender >> time >> str;
+
         if(tcpSocket->objectName() == sender)
         {
-            slClients = str.split("0x00", QString::SkipEmptyParts);
+            QStringList slClients = str.split("0x00", QString::SkipEmptyParts);
             slClients.removeAll(tcpSocket->objectName());
+
+            foreach(QString userName, slClients)
+            {
+                if(indexOfChat(userName) == -1)
+                    stackedWidget->addWidget(new ChatWidget(tcpSocket, userName, this));
+            }
+
             model.setStringList(slClients);
         }
+        else
+        {
+            ((ChatWidget *) stackedWidget->widget(indexOfChat(sender)))->append(time.toString() + " " + str);
+        }
 
-//        txtInfo->append(time.toString() + " " + str);
         nextBlockSize = 0;
     }
+}
+
+void ChatClient::slotSendToServer()
+{
+    sendToServer(((QPushButton *) sender())->objectName(), ;
 }
 
 void ChatClient::slotError(QAbstractSocket::SocketError _err)
@@ -90,9 +143,15 @@ void ChatClient::slotError(QAbstractSocket::SocketError _err)
                        _err == QAbstractSocket::ConnectionRefusedError ? tr("В соединении было отказано.") :
                        QString(tcpSocket->errorString());
     QMessageBox::critical(0, tr("Ошибка"), tr("Невозможно установить соединение:") + " " + strError);
+    exit(0);
 }
 
-void ChatClient::slotSendToServer(const QString &_addressee, const QString &_message)
+void ChatClient::slotSetCurrentChat(QModelIndex _modelIndex)
+{
+    stackedWidget->setCurrentIndex(indexOfChat(model.stringList().at(_modelIndex.row())));
+}
+
+void ChatClient::sendToServer(const QString &_addressee, const QString &_message)
 {
     QByteArray arrBlock;
     QDataStream out(&arrBlock, QIODevice::WriteOnly);
@@ -105,7 +164,12 @@ void ChatClient::slotSendToServer(const QString &_addressee, const QString &_mes
     tcpSocket->write(arrBlock);
 }
 
-void ChatClient::slotConnected()
+int ChatClient::indexOfChat(QString _str)
 {
-    slotSendToServer(tcpSocket->objectName(), " ");
+    for(int i = 0; i < stackedWidget->count(); ++i)
+    {
+        if(stackedWidget->widget(i)->objectName() == _str)
+            return i;
+    }
+    return -1;
 }
