@@ -3,6 +3,7 @@
 
 #include <QApplication>
 #include <QMainWindow>
+#include <QToolBar>
 #include <QInputDialog>
 #include <QMessageBox>
 #include <QItemSelectionModel>
@@ -16,6 +17,8 @@
 
 #include "inputdialog.h"
 
+class ChatClient;
+
 class ChatWidget : public QWidget
 {
     Q_OBJECT
@@ -26,6 +29,12 @@ public:
 
     QTextEdit *txtInfo;
     QTextEdit *txtInput;
+
+private slots:
+    void slotSendToServer();
+
+private:
+    ChatClient *chatClient;
 };
 
 class ChatClient : public QMainWindow
@@ -36,23 +45,24 @@ public:
     ChatClient(QWidget *_parent = 0);
     ~ChatClient();
 
+    void sendToServer(const QString &_addressee, const QString &_message);
+
 private slots:
     void slotConnected();
     void slotReadyRead();
-    void slotSendToServer();
     void slotError(QAbstractSocket::SocketError _err);
 
+    void showListClients();
     void slotSetCurrentChat(QModelIndex _modelIndex);
 
 private:
-    void sendToServer(const QString &_addressee, const QString &_message);
     int indexOfChat(QString _str);
 
     QTcpSocket *tcpSocket;
     quint16 nextBlockSize;
 
+    QLabel *addressee;
     QStringListModel model;
-    QStackedWidget *stackedWidget;
 };
 
 #endif // CHATCLIENT_H

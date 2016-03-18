@@ -3,31 +3,41 @@
 /// Класс ChatWidget
 
 ChatWidget::ChatWidget(QString _userName, QWidget *_parent)
-    : QWidget(_parent)
+    : QWidget(_parent), chatClient((ChatClient *) _parent)
 {
-    this->setObjectName(_userName);
+    setObjectName(_userName);
 
     txtInfo = new QTextEdit;
     txtInput = new QTextEdit;
 
     txtInfo->setReadOnly(true);
 
-    QPushButton *pcmd = new QPushButton(tr("&Отправить"));
-    pcmd->setMaximumWidth(100);
+    QPushButton *pcmd = new QPushButton(style()->standardIcon(QStyle::SP_ArrowForward), tr("&Отправить"));
     connect(pcmd, SIGNAL(clicked()), this, SLOT(slotSendToServer()));
 
     QVBoxLayout *vbxLayout = new QVBoxLayout;
-    vbxLayout->addWidget(new QLabel(_userName), 0, Qt::AlignCenter);
     vbxLayout->addWidget(txtInfo, 10);
     vbxLayout->addWidget(txtInput, 1);
     vbxLayout->addWidget(pcmd, 0, Qt::AlignCenter);
-    this->setLayout(vbxLayout);
+    setLayout(vbxLayout);
 }
 
 ChatWidget::~ChatWidget()
 {
     delete txtInfo;
     delete txtInput;
+}
+
+void ChatWidget::slotSendToServer()
+{
+    QString message = txtInput->toPlainText();
+    if(!message.isEmpty() && !message.isNull())
+    {
+        txtInfo->append(QTime::currentTime().toString() + " <b>" + chatClient->objectName() +
+                        "</b><br>" + message + "<br>");
+        chatClient->sendToServer(objectName(), message);
+        txtInput->clear();
+    }
 }
 
 /// Класс ChatClient
@@ -37,22 +47,30 @@ ChatClient::ChatClient(QWidget *_parent)
 {
     tcpSocket = new QTcpSocket(this);
 
-    QString hostName = "localhost";
-    quint16 nPort = 2323;
+    QString hostName;
+    quint16 nPort;
     InputDialog *inputDialog = new InputDialog;
     if(inputDialog->exec() == QDialog::Accepted)
     {
         hostName = inputDialog->hostName();
+        if(hostName.isNull() || hostName.isEmpty())
+            hostName = "localhost";
         nPort = inputDialog->port();
+        delete inputDialog;
     }
-    delete inputDialog;
+    else
+    {
+        delete inputDialog;
+        exit(0);
+    }
 
     bool bOk;
     QString clientName = QInputDialog::getText(0, tr("Имя пользователя"), tr("Введите имя пользователя:"),
                                         QLineEdit::Normal, "unnamed", &bOk);
-    if(!bOk || clientName.isEmpty())
+    if(!bOk || clientName.isNull() || clientName.isEmpty())
         clientName = "unnamed";
-    this->setWindowTitle(clientName);
+    setWindowTitle(clientName);
+    setObjectName(clientName);
     tcpSocket->setObjectName(clientName);
 
     tcpSocket->connectToHost(hostName, nPort);
@@ -61,31 +79,45 @@ ChatClient::ChatClient(QWidget *_parent)
     connect(tcpSocket, SIGNAL(readyRead()), this, SLOT(slotReadyRead()));
     connect(tcpSocket, SIGNAL(error(QAbstractSocket::SocketError)), this, SLOT(slotError(QAbstractSocket::SocketError)));
 
+    addressee = new QLabel(tr("<b>Пользователи</b>"));
+
+    QToolBar *toolBar = new QToolBar;
+    toolBar->setMovable(false);
+
+    toolBar->addAction(style()->standardIcon(QStyle::SP_ArrowBack), tr("Пользователи"), this, SLOT(showListClients()));
+    toolBar->addSeparator();
+    toolBar->addWidget(addressee);
+
+    addToolBar(toolBar);
+
+    QStackedWidget *stackedWidget = new QStackedWidget;
+
     QListView *lvClients = new QListView;
     lvClients->setModel(&model);
     lvClients->setEditTriggers(QAbstractItemView::NoEditTriggers);
     connect(lvClients, SIGNAL(clicked(QModelIndex)), this, SLOT(slotSetCurrentChat(QModelIndex)));
-    this->setCentralWidget(lvClients);
+    stackedWidget->addWidget(lvClients);
 
-    stackedWidget = new QStackedWidget;
-
-    QDockWidget *dockWidget = new QDockWidget;
-    dockWidget->setWindowTitle("Чат");
-    dockWidget->setWidget(stackedWidget);
-    dockWidget->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
-    connect(lvClients, SIGNAL(clicked(QModelIndex)), dockWidget, SLOT(show()));
-    this->addDockWidget(Qt::RightDockWidgetArea, dockWidget);
+    setCentralWidget(stackedWidget);
 }
 
 ChatClient::~ChatClient()
 {
-    delete stackedWidget;
     delete tcpSocket;
+    delete addressee;
 }
 
 void ChatClient::slotConnected()
 {
-    sendToServer(tcpSocket->objectName(), "");
+    QByteArray arrBlock;
+    QDataStream out(&arrBlock, QIODevice::WriteOnly);
+    out.setVersion(QDataStream::Qt_5_4);
+    out << quint16(0) << true << tcpSocket->objectName();
+
+    out.device()->seek(0);
+    out << quint16(arrBlock.size() - sizeof(quint16));
+
+    tcpSocket->write(arrBlock);
 }
 
 void ChatClient::slotReadyRead()
@@ -104,36 +136,41 @@ void ChatClient::slotReadyRead()
         if(tcpSocket->bytesAvailable() < nextBlockSize)
             break;
 
-        QString sender;
-        QTime time;
-        QString str;
-        in >> sender >> time >> str;
+        bool initialization;
+        in >> initialization;
 
-        if(tcpSocket->objectName() == sender)
+        if(initialization)
         {
-            QStringList slClients = str.split("0x00", QString::SkipEmptyParts);
-            slClients.removeAll(tcpSocket->objectName());
+            QString listClients;
+            in >> listClients;
 
-            foreach(QString userName, slClients)
+            QStringList slClients = listClients.split("0x00", QString::SkipEmptyParts);
+            slClients.removeAll(tcpSocket->objectName());
+            foreach(QString clientName, slClients)
             {
-                if(indexOfChat(userName) == -1)
-                    stackedWidget->addWidget(new ChatWidget(tcpSocket, userName, this));
+                if(indexOfChat(clientName) == -1)
+                   ((QStackedWidget *) centralWidget())->addWidget(new ChatWidget(clientName, this));
             }
 
             model.setStringList(slClients);
         }
         else
         {
-            ((ChatWidget *) stackedWidget->widget(indexOfChat(sender)))->append(time.toString() + " " + str);
+            QString str;
+            in >> str;
+
+            QStringList senderMessage = str.split("0x00", QString::SkipEmptyParts);
+            QString sender = senderMessage.first();
+            QString message = senderMessage.last();
+
+            ((ChatWidget *) ((QStackedWidget *) centralWidget())->widget(indexOfChat(sender)))->txtInfo->append(QTime::currentTime().toString() +
+                                                                                                                " <b>" + sender + "</b><br>" + message + "<br>");
+            ((QStackedWidget *) centralWidget())->setCurrentIndex(indexOfChat(sender));
+            addressee->setText("<b>" + sender + "</b>");
         }
 
         nextBlockSize = 0;
     }
-}
-
-void ChatClient::slotSendToServer()
-{
-    sendToServer(((QPushButton *) sender())->objectName(), ;
 }
 
 void ChatClient::slotError(QAbstractSocket::SocketError _err)
@@ -146,17 +183,26 @@ void ChatClient::slotError(QAbstractSocket::SocketError _err)
     exit(0);
 }
 
+void ChatClient::showListClients()
+{
+    ((QStackedWidget *) centralWidget())->setCurrentIndex(0);
+    addressee->setText("<b>" + tr("Пользователи") + "</b>");
+}
+
 void ChatClient::slotSetCurrentChat(QModelIndex _modelIndex)
 {
-    stackedWidget->setCurrentIndex(indexOfChat(model.stringList().at(_modelIndex.row())));
+    ((QStackedWidget *) centralWidget())->setCurrentIndex(indexOfChat(model.stringList().at(_modelIndex.row())));
+    addressee->setText("<b>" + model.stringList().at(_modelIndex.row()) + "</b>");
 }
 
 void ChatClient::sendToServer(const QString &_addressee, const QString &_message)
 {
+    QString str = _addressee + "0x00" + _message;
+
     QByteArray arrBlock;
     QDataStream out(&arrBlock, QIODevice::WriteOnly);
     out.setVersion(QDataStream::Qt_5_4);
-    out << quint16(0) << _addressee <<  QTime::currentTime() << _message;
+    out << quint16(0) << false << str;
 
     out.device()->seek(0);
     out << quint16(arrBlock.size() - sizeof(quint16));
@@ -166,9 +212,10 @@ void ChatClient::sendToServer(const QString &_addressee, const QString &_message
 
 int ChatClient::indexOfChat(QString _str)
 {
-    for(int i = 0; i < stackedWidget->count(); ++i)
+    int count = ((QStackedWidget *) centralWidget())->count();
+    for(int i = 0; i < count; ++i)
     {
-        if(stackedWidget->widget(i)->objectName() == _str)
+        if(((QStackedWidget *) centralWidget())->widget(i)->objectName() == _str)
             return i;
     }
     return -1;
